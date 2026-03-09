@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
+import * as XLSX from "xlsx";
+import { Range, getTrackBackground } from "react-range";
 
-function YearDropdown({ label, value, onChange, years }) {
+function CustomDropdown({ label, value, onChange, options }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
 
@@ -34,16 +36,17 @@ function YearDropdown({ label, value, onChange, years }) {
           >
             Seleccionar
           </div>
-          {years.map((year) => (
+
+          {options.map((option) => (
             <div
-              key={year}
+              key={option}
               style={styles.option}
               onClick={() => {
-                onChange(year);
+                onChange(option);
                 setOpen(false);
               }}
             >
-              {year}
+              {option}
             </div>
           ))}
         </div>
@@ -52,8 +55,19 @@ function YearDropdown({ label, value, onChange, years }) {
   );
 }
 
+function YearDropdown({ label, value, onChange, years }) {
+  return (
+    <CustomDropdown
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={years}
+    />
+  );
+}
+
 export default function Home() {
-  // 🔵 Clasificación superior (solo visual)
+
   const classificationTabs = [
     "General",
     "Grupo",
@@ -62,36 +76,95 @@ export default function Home() {
     "Investigador",
   ];
 
-  const [activeClassification, setActiveClassification] = useState(null);
-  const [classificationSearch, setClassificationSearch] = useState("");
-
-  // 🔵 Tabs originales (NO modificados)
   const tabs = [
+    { label: "Proyectos", tipo: "proyectos" },
     { label: "Tesis", tipo: "tesis" },
     { label: "Libros", tipo: "libros" },
-    { label: "Proyectos", tipo: "proyectos" },
     { label: "Capítulos", tipo: "capitulos" },
     { label: "Artículos", tipo: "articulos" },
+  ];
+
+  const divisionOptions = [
+    "Ingeniería Biomédica",
+    "Procesos y Reciclado",
+    "Tecnologías de la Información y la Comunicación",
+    "Tecnologías Industriales",
+  ];
+
+  const grupoOptions = [
+    "AFFECTIVE LAB","AMB","BSICoS","CeNIT","COSMOS","CREG","D4S",
+    "DisCo","ECO2","GATHERS","GAZ","GBM","GDE","Generés","GEPM",
+    "GIA","GIFMA","GITSE","GPT","Graphics & Imaging Lab","GTF",
+    "GUIA","Howlab","IAAA","ID_ERGO","M2BE","MARTE","Ropert",
+    "SID","TFD","TIIP","TME Lab","TOL","UIF","ViVoLab"
+  ];
+
+  const proyectoTipoOptions = [
+    "Europeos",
+    "OTRI",
+    "SGI",
+    "Cátedra",
+    "Otros"
+  ];
+
+  // NUEVO
+  const proyectoAmbitoOptions = [
+    "Europeo",
+    "Nacional",
+    "Autonómico",
+    "Local",
+    "Propia"
   ];
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 40 }, (_, i) => currentYear - 39 + i);
 
+  const [activeClassification, setActiveClassification] = useState(null);
+  const [classificationSearch, setClassificationSearch] = useState("");
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [yearStart, setYearStart] = useState("");
   const [yearEnd, setYearEnd] = useState("");
+  const [projectType, setProjectType] = useState("");
+
+  const [projectScope, setProjectScope] = useState("");
+  const [tableSearch, setTableSearch] = useState("");
+
+  const [impactRange, setImpactRange] = useState([0, 10]);
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // 🔹 Paginación ORIGINAL
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const totalPages = Math.ceil(data.length / itemsPerPage);
+  const filteredData = data.filter((row) =>
+    Object.values(row)
+      .join(" ")
+      .toLowerCase()
+      .includes(tableSearch.toLowerCase())
+  );
+
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = data.slice(startIndex, startIndex + itemsPerPage);
+  const currentItems = filteredData.slice(startIndex, startIndex + itemsPerPage);
+
+  const getProjectType = (codigo) => {
+
+    if (!codigo) return "Otros";
+
+    if (codigo.startsWith("I-")) return "Europeos";
+
+    if (/^\d{4}\/\d+/.test(codigo)) return "OTRI";
+
+    if (/^\d+$/.test(codigo)) return "SGI";
+
+    if (/^C\d+/.test(codigo)) return "Cátedra";
+
+    return "Otros";
+  };
 
   const fetchData = async () => {
+
     setLoading(true);
     setCurrentPage(1);
 
@@ -101,89 +174,135 @@ export default function Home() {
     if (yearStart) params.append("anio_inicio", yearStart);
     if (yearEnd) params.append("anio_fin", yearEnd);
 
-    // 🔵 CASO GRUPO
-    if (activeClassification === "Grupo") {
-      if (!classificationSearch) {
-        alert("Introduce un grupo");
-        setLoading(false);
-        return;
+    try {
+
+      let endpoint = "produccion";
+
+      if (activeClassification === "Grupo") {
+        if (!classificationSearch) {
+          alert("Selecciona un grupo");
+          setLoading(false);
+          return;
+        }
+
+        params.append("grupo", classificationSearch);
+        endpoint = "produccion-grupo";
       }
 
-      params.append("grupo", classificationSearch);
+      if (activeClassification === "División") {
+        if (!classificationSearch) {
+          alert("Selecciona una división");
+          setLoading(false);
+          return;
+        }
 
-      try {
-        const res = await fetch(
-          `http://localhost:8000/api/n8n/produccion-grupo?${params.toString()}`
-        );
-        const json = await res.json();
-        setData(Array.isArray(json) ? json : []);
-      } catch (error) {
-        console.error(error);
-        setData([]);
-      }
-    }
-
-    // 🔵 CASO DIVISION
-    if (activeClassification === "División") {
-      if (!classificationSearch) {
-        alert("Introduce una división");
-        setLoading(false);
-        return;
+        params.append("division", classificationSearch);
+        endpoint = "produccion-division";
       }
 
-      params.append("division", classificationSearch);
+      if (activeClassification === "Investigador") {
+        if (!classificationSearch) {
+          alert("Introduce un NIP o Nombre");
+          setLoading(false);
+          return;
+        }
 
-      try {
-        const res = await fetch(
-          `http://localhost:8000/api/n8n/produccion-division?${params.toString()}`
-        );
-        const json = await res.json();
-        setData(Array.isArray(json) ? json : []);
-      } catch (error) {
-        console.error(error);
-        setData([]);
-      }
-    }
-
-    // 🔵 CASO INVESTIGADOR
-    if (activeClassification === "Investigador") {
-      if (!classificationSearch) {
-        alert("Introduce un NIP o Nombre completo");
-        setLoading(false);
-        return;
+        params.append("investigador", classificationSearch);
+        endpoint = "produccion-investigador";
       }
 
-      params.append("investigador", classificationSearch);
+      const res = await fetch(
+        `http://localhost:8000/api/n8n/${endpoint}?${params.toString()}`
+      );
 
-      try {
-        const res = await fetch(
-          `http://localhost:8000/api/n8n/produccion-investigador?${params.toString()}`
-        );
-        const json = await res.json();
-        setData(Array.isArray(json) ? json : []);
-      } catch (error) {
-        console.error(error);
-        setData([]);
-      }
-    }
+      const json = await res.json();
 
-    // 🔵 CASO GENERAL (NO TOCAMOS SU LÓGICA)
-    else {
-      try {
-        const res = await fetch(
-          `http://localhost:8000/api/n8n/produccion?${params.toString()}`
-        );
-        const json = await res.json();
-        setData(Array.isArray(json) ? json : []);
-      } catch (error) {
-        console.error(error);
-        setData([]);
+      let result = Array.isArray(json) ? json : [];
+
+      // FILTROS PROYECTOS
+      if (activeTab.tipo === "proyectos") {
+        if (projectType) {
+          result = result.filter((p) =>
+            getProjectType(p["Código"]) === projectType
+          );
+        }
+
+        if (projectScope) {
+          result = result.filter((p) =>
+            (p["Ámbito"] || "").toLowerCase() === projectScope.toLowerCase()
+          );
+        }
+
       }
+
+      // FILTRO ARTÍCULOS POR FACTOR DE IMPACTO
+      if (activeTab.tipo === "articulos") {
+        result = result.filter((art) => {
+          const fi = parseFloat(art["Factor Impacto"] || 0);
+          const [min, max] = impactRange;
+          if (max === 10) {
+            return fi >= min;
+          }
+          return fi >= min && fi <= max;
+        });
+      }
+
+      setData(result);
+
+    } catch (error) {
+
+      console.error(error);
+      setData([]);
+
     }
 
     setLoading(false);
   };
 
+  const exportCSV = () => {
+
+    if (data.length === 0) return;
+
+    const headers = Object.keys(data[0]);
+
+    const rows = data.map(row =>
+      headers.map(field =>
+        `"${(row[field] ?? "").toString().replace(/"/g,'""')}"`
+      ).join(";")   // ← separador europeo
+    );
+
+    const csvContent =
+      headers.join(";") + "\n" + rows.join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "resultados_i3a.csv";
+    link.click();
+  };
+
+  const exportExcel = () => {
+
+    if (data.length === 0) return;
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "Resultados"
+    );
+
+    XLSX.writeFile(workbook, "resultados_i3a.xlsx");
+
+  };
 
   return (
     <div style={styles.page}>
@@ -200,6 +319,7 @@ export default function Home() {
                 key={tab}
                 onClick={() => {
                   setActiveClassification(tab);
+                  setClassificationSearch("");
                   setData([]);
                 }}
                 style={{
@@ -214,22 +334,41 @@ export default function Home() {
             ))}
           </div>
 
-          {activeClassification &&
-            activeClassification !== "General" && (
-              <div style={{ marginTop: 15 }}>
-                <label style={styles.label}>
-                  Buscar {activeClassification}
-                </label>
-                <input
-                  type="text"
-                  value={classificationSearch}
-                  onChange={(e) =>
-                    setClassificationSearch(e.target.value)
-                  }
-                  style={styles.searchInput}
-                />
-              </div>
-            )}
+          {activeClassification === "Grupo" && (
+            <div style={{ marginTop: 15 }}>
+              <CustomDropdown
+                label="Seleccionar Grupo"
+                value={classificationSearch}
+                onChange={setClassificationSearch}
+                options={grupoOptions}
+              />
+            </div>
+          )}
+
+          {activeClassification === "División" && (
+            <div style={{ marginTop: 15 }}>
+              <CustomDropdown
+                label="Seleccionar División"
+                value={classificationSearch}
+                onChange={setClassificationSearch}
+                options={divisionOptions}
+              />
+            </div>
+          )}
+
+          {activeClassification === "Investigador" && (
+            <div style={{ marginTop: 15 }}>
+              <label style={styles.label}>Buscar Investigador</label>
+              <input
+                type="text"
+                value={classificationSearch}
+                onChange={(e) =>
+                  setClassificationSearch(e.target.value)
+                }
+                style={styles.searchInput}
+              />
+            </div>
+          )}
         </div>
 
         {/* BLOQUE 2 */}
@@ -246,6 +385,9 @@ export default function Home() {
                       setActiveTab(tab);
                       setData([]);
                       setCurrentPage(1);
+                      setProjectType("");
+                      setProjectScope("");
+                      setImpactRange([0, 10]);
                     }}
                     style={{
                       ...styles.tab,
@@ -260,12 +402,14 @@ export default function Home() {
               </div>
 
               <div style={styles.filters}>
+
                 <YearDropdown
                   label="De"
                   value={yearStart}
                   onChange={setYearStart}
                   years={years}
                 />
+
                 <YearDropdown
                   label="Hasta"
                   value={yearEnd}
@@ -273,16 +417,104 @@ export default function Home() {
                   years={years}
                 />
 
+                {activeTab.tipo === "proyectos" && (
+                  <>
+                    <CustomDropdown
+                      label="Tipo de proyecto"
+                      value={projectType}
+                      onChange={setProjectType}
+                      options={proyectoTipoOptions}
+                    />
+
+                    <CustomDropdown
+                      label="Ámbito"
+                      value={projectScope}
+                      onChange={setProjectScope}
+                      options={proyectoAmbitoOptions}
+                    />
+                  </>
+                )}
+
+                {activeTab.tipo === "articulos" && (
+                  <div style={styles.impactFilter}>
+                    <label style={styles.label}>
+                      Factor de impacto: {impactRange[0]} — {impactRange[1] === 10 ? "10+" : impactRange[1]}
+                    </label>
+                    <div style={styles.sliderContainer}>
+                      <Range
+                        values={impactRange}
+                        step={0.1}
+                        min={0}
+                        max={10}
+                        onChange={(values) => setImpactRange(values)}
+
+                        renderTrack={({ props, children }) => (
+                          <div
+                            {...props}
+                            style={{
+                              ...props.style,
+                              height: "6px",
+                              width: "100%",
+                              borderRadius: "4px",
+                              background: getTrackBackground({
+                                values: impactRange,
+                                colors: ["#ccc", "#1e5f8a", "#ccc"],
+                                min: 0,
+                                max: 10
+                              })
+                            }}
+                          >
+                            {children}
+                          </div>
+                        )}
+
+                        renderThumb={({ props }) => (
+                          <div
+                            {...props}
+                            style={{
+                              ...props.style,
+                              height: "16px",
+                              width: "16px",
+                              borderRadius: "50%",
+                              backgroundColor: "#1e5f8a"
+                            }}
+                          />
+                        )}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <button
                   style={styles.searchButton}
                   onClick={fetchData}
                 >
                   Buscar
                 </button>
+
+                {data.length > 0 && (
+                  <>
+                    <button
+                      style={styles.exportButton}
+                      onClick={exportCSV}
+                    >
+                      Exportar CSV
+                    </button>
+
+                    <button
+                      style={styles.excelButton}
+                      onClick={exportExcel}
+                    >
+                      Exportar Excel
+                    </button>
+                  </>
+                )}
+
               </div>
             </div>
 
             {/* RESULTADOS */}
+
             <div style={styles.resultsBox}>
               <h2 style={styles.sectionTitle}>{activeTab.label}</h2>
 
@@ -294,6 +526,16 @@ export default function Home() {
                 </p>
               ) : (
                 <>
+                  <input
+                    type="text"
+                    placeholder="Buscar dentro de resultados..."
+                    value={tableSearch}
+                    onChange={(e) => {
+                      setTableSearch(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    style={styles.tableSearch}
+                  />
                   <div style={styles.tableWrapper}>
                     <table style={styles.table}>
                       <thead>
@@ -305,6 +547,7 @@ export default function Home() {
                           ))}
                         </tr>
                       </thead>
+
                       <tbody>
                         {currentItems.map((row, index) => (
                           <tr key={index}>
@@ -320,10 +563,12 @@ export default function Home() {
                           </tr>
                         ))}
                       </tbody>
+
                     </table>
                   </div>
 
                   <div style={styles.pagination}>
+
                     <button
                       disabled={currentPage === 1}
                       onClick={() =>
@@ -347,6 +592,7 @@ export default function Home() {
                     >
                       Siguiente →
                     </button>
+
                   </div>
                 </>
               )}
@@ -357,8 +603,6 @@ export default function Home() {
     </div>
   );
 }
-
-/* ------------------ STYLES ------------------ */
 
 const styles = {
   page: {
@@ -392,9 +636,7 @@ const styles = {
     backgroundColor: "#f8fafc",
     marginBottom: 30,
   },
-  blockTitle: {
-    marginBottom: 15,
-  },
+  blockTitle: { marginBottom: 15 },
   classificationTabs: {
     display: "flex",
     gap: 12,
@@ -436,6 +678,24 @@ const styles = {
     cursor: "pointer",
     fontWeight: 600,
   },
+  exportButton: {
+    padding: "10px 20px",
+    borderRadius: 6,
+    border: "none",
+    backgroundColor: "#16a34a",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 600,
+  },
+  excelButton: {
+    padding: "10px 20px",
+    borderRadius: 6,
+    border: "none",
+    backgroundColor: "#2563eb",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 600,
+  },
   searchInput: {
     padding: 10,
     borderRadius: 6,
@@ -446,15 +706,13 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     position: "relative",
-    minWidth: 150,
+    minWidth: 250,
   },
-  label: {
-    marginBottom: 6,
-    fontSize: 14,
-  },
+  label: { marginBottom: 6, fontSize: 14 },
   dropdown: {
     padding: "10px 12px",
     borderRadius: 6,
+    backgroundColor: "white",
     border: "1px solid #e2e8f0",
     cursor: "pointer",
     display: "flex",
@@ -472,10 +730,7 @@ const styles = {
     borderRadius: 6,
     zIndex: 1000,
   },
-  option: {
-    padding: "8px 12px",
-    cursor: "pointer",
-  },
+  option: { padding: "8px 12px", cursor: "pointer" },
   resultsBox: {
     padding: 20,
     borderRadius: 8,
@@ -515,4 +770,25 @@ const styles = {
     cursor: "pointer",
   },
   pageInfo: { fontWeight: 500 },
+  tableSearch: {
+    padding: 10,
+    borderRadius: 6,
+    border: "1px solid #e2e8f0",
+    marginBottom: 10,
+    width: 300
+  },
+  impactFilter: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    minWidth: 260
+  },
+  sliderRow: {
+    display: "flex",
+    gap: 10
+  },
+  sliderContainer: {
+    width: 260,
+    paddingTop: 8
+  },
 };

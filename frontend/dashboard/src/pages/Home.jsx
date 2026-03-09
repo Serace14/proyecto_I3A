@@ -1,8 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-
-/* ===========================
-   DROPDOWN GENÉRICO
-=========================== */
+import * as XLSX from "xlsx";
+import { Range, getTrackBackground } from "react-range";
 
 function CustomDropdown({ label, value, onChange, options }) {
   const [open, setOpen] = useState(false);
@@ -57,10 +55,6 @@ function CustomDropdown({ label, value, onChange, options }) {
   );
 }
 
-/* ===========================
-   DROPDOWN AÑOS
-=========================== */
-
 function YearDropdown({ label, value, onChange, years }) {
   return (
     <CustomDropdown
@@ -72,11 +66,8 @@ function YearDropdown({ label, value, onChange, years }) {
   );
 }
 
-/* ===========================
-   COMPONENTE PRINCIPAL
-=========================== */
-
 export default function Home() {
+
   const classificationTabs = [
     "General",
     "Grupo",
@@ -93,10 +84,6 @@ export default function Home() {
     { label: "Artículos", tipo: "articulos" },
   ];
 
-  /* ===========================
-     OPCIONES FIJAS
-  =========================== */
-
   const divisionOptions = [
     "Ingeniería Biomédica",
     "Procesos y Reciclado",
@@ -112,33 +99,72 @@ export default function Home() {
     "SID","TFD","TIIP","TME Lab","TOL","UIF","ViVoLab"
   ];
 
+  const proyectoTipoOptions = [
+    "Europeos",
+    "OTRI",
+    "SGI",
+    "Cátedra",
+    "Otros"
+  ];
+
+  // NUEVO
+  const proyectoAmbitoOptions = [
+    "Europeo",
+    "Nacional",
+    "Autonómico",
+    "Local",
+    "Propia"
+  ];
+
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 40 }, (_, i) => currentYear - 39 + i);
-
-  /* ===========================
-     STATES
-  =========================== */
 
   const [activeClassification, setActiveClassification] = useState(null);
   const [classificationSearch, setClassificationSearch] = useState("");
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [yearStart, setYearStart] = useState("");
   const [yearEnd, setYearEnd] = useState("");
+  const [projectType, setProjectType] = useState("");
+
+  const [projectScope, setProjectScope] = useState("");
+  const [tableSearch, setTableSearch] = useState("");
+
+  const [impactRange, setImpactRange] = useState([0, 10]);
+
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const totalPages = Math.ceil(data.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentItems = data.slice(startIndex, startIndex + itemsPerPage);
+  const filteredData = data.filter((row) =>
+    Object.values(row)
+      .join(" ")
+      .toLowerCase()
+      .includes(tableSearch.toLowerCase())
+  );
 
-  /* ===========================
-     FETCH
-  =========================== */
+  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const currentItems = filteredData.slice(startIndex, startIndex + itemsPerPage);
+
+  const getProjectType = (codigo) => {
+
+    if (!codigo) return "Otros";
+
+    if (codigo.startsWith("I-")) return "Europeos";
+
+    if (/^\d{4}\/\d+/.test(codigo)) return "OTRI";
+
+    if (/^\d+$/.test(codigo)) return "SGI";
+
+    if (/^C\d+/.test(codigo)) return "Cátedra";
+
+    return "Otros";
+  };
 
   const fetchData = async () => {
+
     setLoading(true);
     setCurrentPage(1);
 
@@ -149,6 +175,7 @@ export default function Home() {
     if (yearEnd) params.append("anio_fin", yearEnd);
 
     try {
+
       let endpoint = "produccion";
 
       if (activeClassification === "Grupo") {
@@ -157,6 +184,7 @@ export default function Home() {
           setLoading(false);
           return;
         }
+
         params.append("grupo", classificationSearch);
         endpoint = "produccion-grupo";
       }
@@ -167,6 +195,7 @@ export default function Home() {
           setLoading(false);
           return;
         }
+
         params.append("division", classificationSearch);
         endpoint = "produccion-division";
       }
@@ -177,6 +206,7 @@ export default function Home() {
           setLoading(false);
           return;
         }
+
         params.append("investigador", classificationSearch);
         endpoint = "produccion-investigador";
       }
@@ -186,18 +216,93 @@ export default function Home() {
       );
 
       const json = await res.json();
-      setData(Array.isArray(json) ? json : []);
+
+      let result = Array.isArray(json) ? json : [];
+
+      // FILTROS PROYECTOS
+      if (activeTab.tipo === "proyectos") {
+        if (projectType) {
+          result = result.filter((p) =>
+            getProjectType(p["Código"]) === projectType
+          );
+        }
+
+        if (projectScope) {
+          result = result.filter((p) =>
+            (p["Ámbito"] || "").toLowerCase() === projectScope.toLowerCase()
+          );
+        }
+
+      }
+
+      // FILTRO ARTÍCULOS POR FACTOR DE IMPACTO
+      if (activeTab.tipo === "articulos") {
+        result = result.filter((art) => {
+          const fi = parseFloat(art["Factor Impacto"] || 0);
+          const [min, max] = impactRange;
+          if (max === 10) {
+            return fi >= min;
+          }
+          return fi >= min && fi <= max;
+        });
+      }
+
+      setData(result);
+
     } catch (error) {
+
       console.error(error);
       setData([]);
+
     }
 
     setLoading(false);
   };
 
-  /* ===========================
-     RENDER
-  =========================== */
+  const exportCSV = () => {
+
+    if (data.length === 0) return;
+
+    const headers = Object.keys(data[0]);
+
+    const rows = data.map(row =>
+      headers.map(field =>
+        `"${(row[field] ?? "").toString().replace(/"/g,'""')}"`
+      ).join(";")   // ← separador europeo
+    );
+
+    const csvContent =
+      headers.join(";") + "\n" + rows.join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;"
+    });
+
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "resultados_i3a.csv";
+    link.click();
+  };
+
+  const exportExcel = () => {
+
+    if (data.length === 0) return;
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      workbook,
+      worksheet,
+      "Resultados"
+    );
+
+    XLSX.writeFile(workbook, "resultados_i3a.xlsx");
+
+  };
 
   return (
     <div style={styles.page}>
@@ -229,7 +334,6 @@ export default function Home() {
             ))}
           </div>
 
-          {/* 🔹 CAMBIO IMPORTANTE AQUÍ */}
           {activeClassification === "Grupo" && (
             <div style={{ marginTop: 15 }}>
               <CustomDropdown
@@ -254,9 +358,7 @@ export default function Home() {
 
           {activeClassification === "Investigador" && (
             <div style={{ marginTop: 15 }}>
-              <label style={styles.label}>
-                Buscar Investigador
-              </label>
+              <label style={styles.label}>Buscar Investigador</label>
               <input
                 type="text"
                 value={classificationSearch}
@@ -283,6 +385,9 @@ export default function Home() {
                       setActiveTab(tab);
                       setData([]);
                       setCurrentPage(1);
+                      setProjectType("");
+                      setProjectScope("");
+                      setImpactRange([0, 10]);
                     }}
                     style={{
                       ...styles.tab,
@@ -297,12 +402,14 @@ export default function Home() {
               </div>
 
               <div style={styles.filters}>
+
                 <YearDropdown
                   label="De"
                   value={yearStart}
                   onChange={setYearStart}
                   years={years}
                 />
+
                 <YearDropdown
                   label="Hasta"
                   value={yearEnd}
@@ -310,16 +417,104 @@ export default function Home() {
                   years={years}
                 />
 
+                {activeTab.tipo === "proyectos" && (
+                  <>
+                    <CustomDropdown
+                      label="Tipo de proyecto"
+                      value={projectType}
+                      onChange={setProjectType}
+                      options={proyectoTipoOptions}
+                    />
+
+                    <CustomDropdown
+                      label="Ámbito"
+                      value={projectScope}
+                      onChange={setProjectScope}
+                      options={proyectoAmbitoOptions}
+                    />
+                  </>
+                )}
+
+                {activeTab.tipo === "articulos" && (
+                  <div style={styles.impactFilter}>
+                    <label style={styles.label}>
+                      Factor de impacto: {impactRange[0]} — {impactRange[1] === 10 ? "10+" : impactRange[1]}
+                    </label>
+                    <div style={styles.sliderContainer}>
+                      <Range
+                        values={impactRange}
+                        step={0.1}
+                        min={0}
+                        max={10}
+                        onChange={(values) => setImpactRange(values)}
+
+                        renderTrack={({ props, children }) => (
+                          <div
+                            {...props}
+                            style={{
+                              ...props.style,
+                              height: "6px",
+                              width: "100%",
+                              borderRadius: "4px",
+                              background: getTrackBackground({
+                                values: impactRange,
+                                colors: ["#ccc", "#1e5f8a", "#ccc"],
+                                min: 0,
+                                max: 10
+                              })
+                            }}
+                          >
+                            {children}
+                          </div>
+                        )}
+
+                        renderThumb={({ props }) => (
+                          <div
+                            {...props}
+                            style={{
+                              ...props.style,
+                              height: "16px",
+                              width: "16px",
+                              borderRadius: "50%",
+                              backgroundColor: "#1e5f8a"
+                            }}
+                          />
+                        )}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <button
                   style={styles.searchButton}
                   onClick={fetchData}
                 >
                   Buscar
                 </button>
+
+                {data.length > 0 && (
+                  <>
+                    <button
+                      style={styles.exportButton}
+                      onClick={exportCSV}
+                    >
+                      Exportar CSV
+                    </button>
+
+                    <button
+                      style={styles.excelButton}
+                      onClick={exportExcel}
+                    >
+                      Exportar Excel
+                    </button>
+                  </>
+                )}
+
               </div>
             </div>
 
             {/* RESULTADOS */}
+
             <div style={styles.resultsBox}>
               <h2 style={styles.sectionTitle}>{activeTab.label}</h2>
 
@@ -331,6 +526,16 @@ export default function Home() {
                 </p>
               ) : (
                 <>
+                  <input
+                    type="text"
+                    placeholder="Buscar dentro de resultados..."
+                    value={tableSearch}
+                    onChange={(e) => {
+                      setTableSearch(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    style={styles.tableSearch}
+                  />
                   <div style={styles.tableWrapper}>
                     <table style={styles.table}>
                       <thead>
@@ -342,6 +547,7 @@ export default function Home() {
                           ))}
                         </tr>
                       </thead>
+
                       <tbody>
                         {currentItems.map((row, index) => (
                           <tr key={index}>
@@ -357,10 +563,12 @@ export default function Home() {
                           </tr>
                         ))}
                       </tbody>
+
                     </table>
                   </div>
 
                   <div style={styles.pagination}>
+
                     <button
                       disabled={currentPage === 1}
                       onClick={() =>
@@ -384,6 +592,7 @@ export default function Home() {
                     >
                       Siguiente →
                     </button>
+
                   </div>
                 </>
               )}
@@ -394,10 +603,6 @@ export default function Home() {
     </div>
   );
 }
-
-/* ===========================
-   STYLES (LOS MISMOS)
-=========================== */
 
 const styles = {
   page: {
@@ -469,6 +674,24 @@ const styles = {
     borderRadius: 6,
     border: "none",
     backgroundColor: "#1e5f8a",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 600,
+  },
+  exportButton: {
+    padding: "10px 20px",
+    borderRadius: 6,
+    border: "none",
+    backgroundColor: "#16a34a",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 600,
+  },
+  excelButton: {
+    padding: "10px 20px",
+    borderRadius: 6,
+    border: "none",
+    backgroundColor: "#2563eb",
     color: "white",
     cursor: "pointer",
     fontWeight: 600,
@@ -547,4 +770,25 @@ const styles = {
     cursor: "pointer",
   },
   pageInfo: { fontWeight: 500 },
+  tableSearch: {
+    padding: 10,
+    borderRadius: 6,
+    border: "1px solid #e2e8f0",
+    marginBottom: 10,
+    width: 300
+  },
+  impactFilter: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    minWidth: 260
+  },
+  sliderRow: {
+    display: "flex",
+    gap: 10
+  },
+  sliderContainer: {
+    width: 260,
+    paddingTop: 8
+  },
 };
