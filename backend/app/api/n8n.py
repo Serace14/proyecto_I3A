@@ -49,9 +49,9 @@ def get_produccion_division(
 
 @router.get("/produccion-investigador")
 def get_produccion_investigador(
-    investigador: str,
+    investigadores: str,
     tipo: str,
     anio_inicio: int | None = None,
     anio_fin: int | None = None,
 ):
-    return n8n_client.get_produccion_investigador(investigador, tipo, anio_inicio, anio_fin)
+    return n8n_client.get_produccion_investigador(investigadores, tipo, anio_inicio, anio_fin)

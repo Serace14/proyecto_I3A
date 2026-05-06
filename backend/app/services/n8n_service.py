@@ -196,7 +196,7 @@ class N8NClient:
         
     def get_produccion_investigador(
         self,
-        investigador: str,
+        investigadores: str,
         tipo: str,
         anio_inicio: int | None = None,
         anio_fin: int | None = None,
@@ -216,8 +216,8 @@ class N8NClient:
             url = f"{self.base_url}/webhook/{webhook_map[tipo]}"
 
             params = {}
-            if investigador:
-                params["investigador"] = investigador
+            if investigadores:
+                params["investigadores"] = investigadores
             if anio_inicio:
                 params["anio_inicio"] = anio_inicio
             if anio_fin:

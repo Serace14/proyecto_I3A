@@ -121,6 +121,7 @@ export default function Home() {
 
   const [activeClassification, setActiveClassification] = useState(null);
   const [classificationSearch, setClassificationSearch] = useState("");
+  const [investigadores, setInvestigadores] = useState([""]);
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [yearStart, setYearStart] = useState("");
   const [yearEnd, setYearEnd] = useState("");
@@ -201,13 +202,14 @@ export default function Home() {
       }
 
       if (activeClassification === "Investigador") {
-        if (!classificationSearch) {
-          alert("Introduce un NIP o Nombre");
+        const invFiltrados = investigadores.filter(i => i.trim() !== "");
+        if (invFiltrados.length === 0) {
+          alert("Introduce al menos un NIP o Nombre");
           setLoading(false);
           return;
         }
-
-        params.append("investigador", classificationSearch);
+        // Enviamos todos separados por comas
+        params.append("investigadores", invFiltrados.join("|"));
         endpoint = "produccion-investigador";
       }
 
@@ -320,6 +322,7 @@ export default function Home() {
                 onClick={() => {
                   setActiveClassification(tab);
                   setClassificationSearch("");
+                  setInvestigadores([""]); 
                   setData([]);
                 }}
                 style={{
@@ -358,15 +361,37 @@ export default function Home() {
 
           {activeClassification === "Investigador" && (
             <div style={{ marginTop: 15 }}>
-              <label style={styles.label}>Buscar Investigador</label>
-              <input
-                type="text"
-                value={classificationSearch}
-                onChange={(e) =>
-                  setClassificationSearch(e.target.value)
-                }
-                style={styles.searchInput}
-              />
+              <label style={styles.label}>Buscar Investigador(es)</label>
+              {investigadores.map((inv, index) => (
+                <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    value={inv}
+                    placeholder={`Investigador ${index + 1}`}
+                    onChange={(e) => {
+                      const updated = [...investigadores];
+                      updated[index] = e.target.value;
+                      setInvestigadores(updated);
+                    }}
+                    style={styles.searchInput}
+                  />
+                  {investigadores.length > 1 && (
+                    <button
+                      onClick={() => setInvestigadores(investigadores.filter((_, i) => i !== index))}
+                      style={styles.removeButton}
+                      title="Eliminar"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                onClick={() => setInvestigadores([...investigadores, ""])}
+                style={styles.addButton}
+              >
+                + Añadir investigador
+              </button>
             </div>
           )}
         </div>
@@ -790,5 +815,24 @@ const styles = {
   sliderContainer: {
     width: 260,
     paddingTop: 8
+  },
+  addButton: {
+    padding: "8px 14px",
+    borderRadius: 6,
+    border: "1px dashed #1e5f8a",
+    backgroundColor: "transparent",
+    color: "#1e5f8a",
+    cursor: "pointer",
+    fontWeight: 600,
+    marginTop: 4,
+  },
+  removeButton: {
+    padding: "6px 10px",
+    borderRadius: 6,
+    border: "none",
+    backgroundColor: "#fee2e2",
+    color: "#dc2626",
+    cursor: "pointer",
+    fontWeight: 700,
   },
 };
