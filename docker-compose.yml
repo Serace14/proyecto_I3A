@@ -1,0 +1,31 @@
+services:
+
+  # ── Backend FastAPI ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env          # N8N_*, METABASE_* se leen desde aquí
+    # Sin ports: solo accesible desde nginx dentro de app-net
+    networks:
+      - app-net
+
+  # ── Frontend React/Vite → nginx ───────────────────────────────
+  frontend:
+    build:
+      context: ./frontend/dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3080:80"
+    depends_on:
+      - backend
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: bridge
+    name: i3a_data_visor_net

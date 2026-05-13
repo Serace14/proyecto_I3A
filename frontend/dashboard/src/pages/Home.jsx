@@ -214,7 +214,7 @@ export default function Home() {
       }
 
       const res = await fetch(
-        `http://localhost:8000/api/n8n/${endpoint}?${params.toString()}`
+        `/api/n8n/${endpoint}?${params.toString()}`
       );
 
       const json = await res.json();
