@@ -17,6 +17,10 @@ def get_executions():
 def search_personas(search: str | None = None):
     return n8n_client.search_personas(search)
 
+@router.get("/buscar-investigador")
+def buscar_investigador(q: str | None = None):
+    return n8n_client.buscar_investigador(q)
+
 @router.get("/search-grupos")
 def search_grupos(nip: str | None = None):
     return n8n_client.search_grupos(nip)

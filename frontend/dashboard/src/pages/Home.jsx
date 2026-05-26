@@ -121,7 +121,14 @@ export default function Home() {
 
   const [activeClassification, setActiveClassification] = useState(null);
   const [classificationSearch, setClassificationSearch] = useState("");
-  const [investigadores, setInvestigadores] = useState([""]);
+  const [investigadores, setInvestigadores] = useState([
+    {
+      search: "",
+      selected: null,
+      suggestions: [],
+      showSuggestions: false,
+    },
+  ]);
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [yearStart, setYearStart] = useState("");
   const [yearEnd, setYearEnd] = useState("");
@@ -164,6 +171,63 @@ export default function Home() {
     return "Otros";
   };
 
+  const searchInvestigador = async (value, index) => {
+    const updated = [...investigadores];
+
+    updated[index].search = value;
+    updated[index].selected = null;
+
+    setInvestigadores(updated);
+
+    if (value.trim().length < 2) {
+      updated[index].suggestions = [];
+      updated[index].showSuggestions = false;
+      setInvestigadores([...updated]);
+      return;
+    }
+
+    // guardar el texto exacto buscado ANTES del fetch
+    const currentSearch = value;
+
+    try {
+      const res = await fetch(
+        `/api/n8n/buscar-investigador?q=${encodeURIComponent(currentSearch)}`
+      );
+
+      const json = await res.json();
+
+      // coger estado ACTUAL, no el viejo "updated"
+      setInvestigadores((prev) => {
+        const next = [...prev];
+
+        // si el usuario ya escribió otra cosa, ignorar respuesta vieja
+        if (next[index].search !== currentSearch) {
+          return prev;
+        }
+
+        next[index].suggestions = Array.isArray(json) ? json : [];
+        next[index].showSuggestions = true;
+
+        return next;
+      });
+    } catch (err) {
+      console.error(err);
+
+      setInvestigadores((prev) => {
+        const next = [...prev];
+
+        if (next[index].search !== currentSearch) {
+          return prev;
+        }
+
+        next[index].suggestions = [];
+        next[index].showSuggestions = false;
+
+        return next;
+      });
+    }
+  };
+
   const fetchData = async () => {
 
     setLoading(true);
@@ -202,14 +266,20 @@ export default function Home() {
       }
 
       if (activeClassification === "Investigador") {
-        const invFiltrados = investigadores.filter(i => i.trim() !== "");
+        const invFiltrados = investigadores
+          .filter((i) => i.selected)
+          .map((i) => i.selected.nip);
+
         if (invFiltrados.length === 0) {
-          alert("Introduce al menos un NIP o Nombre");
+          alert("Selecciona al menos un investigador");
           setLoading(false);
           return;
         }
-        // Enviamos todos separados por comas
-        params.append("investigadores", invFiltrados.join("|"));
+
+        params.append(
+          "investigadores",
+          invFiltrados.join("|")
+        );
         endpoint = "produccion-investigador";
       }
 
@@ -322,7 +392,14 @@ export default function Home() {
                 onClick={() => {
                   setActiveClassification(tab);
                   setClassificationSearch("");
-                  setInvestigadores([""]); 
+                  setInvestigadores([
+                    {
+                      search: "",
+                      selected: null,
+                      suggestions: [],
+                      showSuggestions: false,
+                    },
+                  ]);
                   setData([]);
                 }}
                 style={{
@@ -362,32 +439,84 @@ export default function Home() {
           {activeClassification === "Investigador" && (
             <div style={{ marginTop: 15 }}>
               <label style={styles.label}>Buscar Investigador(es)</label>
+
               {investigadores.map((inv, index) => (
-                <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <input
-                    type="text"
-                    value={inv}
-                    placeholder={`Investigador ${index + 1}`}
-                    onChange={(e) => {
-                      const updated = [...investigadores];
-                      updated[index] = e.target.value;
-                      setInvestigadores(updated);
+                <div
+                  key={index}
+                  style={{
+                    position: "relative",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
                     }}
-                    style={styles.searchInput}
-                  />
-                  {investigadores.length > 1 && (
-                    <button
-                      onClick={() => setInvestigadores(investigadores.filter((_, i) => i !== index))}
-                      style={styles.removeButton}
-                      title="Eliminar"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  >
+                    <input
+                      type="text"
+                      value={inv.search}
+                      placeholder={`Investigador ${index + 1}`}
+                      onChange={(e) =>
+                        searchInvestigador(e.target.value, index)
+                      }
+                      style={styles.searchInput}
+                    />
+
+                    {investigadores.length > 1 && (
+                      <button
+                        onClick={() =>
+                          setInvestigadores(
+                            investigadores.filter((_, i) => i !== index)
+                          )
+                        }
+                        style={styles.removeButton}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {inv.showSuggestions &&
+                    inv.suggestions.length > 0 && (
+                      <div style={styles.dropdownMenu}>
+                        {inv.suggestions.map((item) => (
+                          <div
+                            key={item.nip}
+                            style={styles.option}
+                            onClick={() => {
+                              const updated = [...investigadores];
+
+                              updated[index].selected = item;
+                              updated[index].search =
+                                `${item.nombre} (${item.nip})`;
+                              updated[index].showSuggestions = false;
+
+                              setInvestigadores(updated);
+                            }}
+                          >
+                            {item.nombre} ({item.nip})
+                          </div>
+                        ))}
+                      </div>
+                    )}
                 </div>
               ))}
+
               <button
-                onClick={() => setInvestigadores([...investigadores, ""])}
+                onClick={() =>
+                  setInvestigadores([
+                    ...investigadores,
+                    {
+                      search: "",
+                      selected: null,
+                      suggestions: [],
+                      showSuggestions: false,
+                    },
+                  ])
+                }
                 style={styles.addButton}
               >
                 + Añadir investigador

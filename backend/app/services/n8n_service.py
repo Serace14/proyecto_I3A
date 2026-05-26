@@ -48,6 +48,35 @@ class N8NClient:
         except requests.RequestException as e:
             raise RuntimeError(f"n8n search failed: {e}")
         
+    def buscar_investigador(self, q: str | None = None):
+        try:
+            url = f"{self.base_url}/webhook/buscar-investigador"
+
+            params = {}
+            if q:
+                params["q"] = q
+
+            r = requests.get(
+                url,
+                params=params,
+                timeout=10
+            )
+
+            r.raise_for_status()
+            data = r.json()
+
+            # normalizar siempre a lista
+            if isinstance(data, list):
+                return data
+            elif isinstance(data, dict):
+                return [data]
+            return []
+
+        except requests.RequestException as e:
+            raise RuntimeError(
+                f"n8n buscar-investigador failed: {e}"
+            )
+        
     def search_grupos(self, nip: str | None = None):
         try:
             url = f"{self.base_url}/webhook/search-grupos"
