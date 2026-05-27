@@ -145,7 +145,33 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const filteredData = data.filter((row) =>
+  const [tableData, setTableData] = useState([]);
+  const [editingCell, setEditingCell] = useState(null);
+
+  const PRIMARY_KEYS = {
+    proyectos: "Nº Proyecto",
+    articulos: "ID",
+    capitulos: "ID",
+    tesis: "numTesis",
+    libros: "ID",
+  };
+
+  const READ_ONLY_FIELDS = [
+    "id",
+    "ID",
+    "ISBN",
+    "codigo_proyecto",
+    "nip",
+    "project_id",
+    "grupo_id",
+    "Nº Proyecto",
+    "Código",
+    "Nº Tesis",
+    "numTesis",
+    "Nº Revista"
+  ];
+
+  const filteredData = tableData.filter((row) =>
     Object.values(row)
       .join(" ")
       .toLowerCase()
@@ -228,6 +254,74 @@ export default function Home() {
     }
   };
 
+  const updateCellValue = (rowIndex, column, value) => {
+    setTableData((prev) => {
+      const next = [...prev];
+
+      next[rowIndex] = {
+        ...next[rowIndex],
+        [column]: value,
+      };
+
+      return next;
+    });
+  };
+
+  const saveOverride = async (rowIndex, column, value) => {
+    try {
+      const row = tableData[rowIndex];
+
+      const pkField = PRIMARY_KEYS[activeTab.tipo];
+      const recordId = row[pkField];
+
+      await fetch("/api/metabase/save-override", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          table_name: activeTab.tipo,
+          record_id: String(recordId),
+          column_name: column,
+          value,
+        }),
+      });
+    } catch (err) {
+      console.error("save override error", err);
+    }
+  };
+
+  const applyOverrides = (rows, overrides) => {
+    const pkField = PRIMARY_KEYS[activeTab.tipo];
+    const overrideMap = {};
+
+    overrides.forEach((o) => {
+
+      const key =
+        `${o.record_id}___${o.column_name}`;
+
+      overrideMap[key] = o.new_value;
+    });
+
+    return rows.map((row) => {
+
+      const recordId = String(row[pkField]);
+
+      const updatedRow = { ...row };
+
+      Object.keys(row).forEach((column) => {
+
+        const key = `${recordId}___${column}`;
+
+        if (overrideMap[key] !== undefined) {
+          updatedRow[column] = overrideMap[key];
+        }
+      });
+
+      return updatedRow;
+    });
+  };
+
   const fetchData = async () => {
 
     setLoading(true);
@@ -291,6 +385,14 @@ export default function Home() {
 
       let result = Array.isArray(json) ? json : [];
 
+      const overridesRes = await fetch(
+        `/api/metabase/get-overrides?table_name=${activeTab.tipo}`
+      );
+
+      const overrides = await overridesRes.json();
+
+      result = applyOverrides(result, overrides);
+
       // FILTROS PROYECTOS
       if (activeTab.tipo === "proyectos") {
         if (projectType) {
@@ -320,12 +422,13 @@ export default function Home() {
       }
 
       setData(result);
+      setTableData(result)
 
     } catch (error) {
 
       console.error(error);
       setData([]);
-
+      setTableData([]);
     }
 
     setLoading(false);
@@ -335,9 +438,9 @@ export default function Home() {
 
     if (data.length === 0) return;
 
-    const headers = Object.keys(data[0]);
+    const headers = Object.keys(tableData[0]);
 
-    const rows = data.map(row =>
+    const rows = tableData.map(row =>
       headers.map(field =>
         `"${(row[field] ?? "").toString().replace(/"/g,'""')}"`
       ).join(";")   // ← separador europeo
@@ -360,9 +463,9 @@ export default function Home() {
 
   const exportExcel = () => {
 
-    if (data.length === 0) return;
+    if (tableData.length === 0) return;
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
+    const worksheet = XLSX.utils.json_to_sheet(tableData);
 
     const workbook = XLSX.utils.book_new();
 
@@ -702,18 +805,89 @@ export default function Home() {
                         </tr>
                       </thead>
 
-                      <tbody>
-                        {currentItems.map((row, index) => (
-                          <tr key={index}>
-                            {Object.values(row).map((value, i) => (
-                              <td key={i} style={styles.td}>
-                                {typeof value === "string" &&
-                                value.includes("T") &&
-                                value.includes("Z")
-                                  ? new Date(value).toLocaleDateString()
-                                  : value}
-                              </td>
-                            ))}
+                     <tbody>
+                        {currentItems.map((row, rowIndex) => (
+                          <tr key={rowIndex}>
+                            {Object.entries(row).map(([column, value], colIndex) => {
+                              const absoluteRowIndex =
+                                startIndex + rowIndex;
+
+                              const isReadOnly =
+                                READ_ONLY_FIELDS.includes(column);
+
+                              const isEditing =
+                                editingCell?.row === absoluteRowIndex &&
+                                editingCell?.column === column;
+
+                              return (
+                                <td
+                                  key={colIndex}
+                                  style={styles.td}
+                                  onDoubleClick={() => {
+                                    if (!isReadOnly) {
+                                      setEditingCell({
+                                        row: absoluteRowIndex,
+                                        column,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {isEditing ? (
+                                    <input
+                                      autoFocus
+                                      value={value ?? ""}
+                                      onChange={(e) =>
+                                        updateCellValue(
+                                          absoluteRowIndex,
+                                          column,
+                                          e.target.value
+                                        )
+                                      }
+                                      onBlur={async (e) => {
+                                        const newValue = e.target.value;
+
+                                        await saveOverride(
+                                          absoluteRowIndex,
+                                          column,
+                                          newValue
+                                        );
+
+                                        setEditingCell(null);
+                                      }}
+                                      onKeyDown={async (e) => {
+                                        if (e.key === "Enter") {
+                                          await saveOverride(
+                                            absoluteRowIndex,
+                                            column,
+                                            e.target.value
+                                          );
+
+                                          setEditingCell(null);
+                                        }
+                                      }}
+                                      style={styles.editInput}
+                                    />
+                                  ) : (
+                                    <span
+                                      style={{
+                                        opacity: isReadOnly ? 0.7 : 1,
+                                        cursor: isReadOnly
+                                          ? "default"
+                                          : "pointer",
+                                      }}
+                                    >
+                                      {typeof value === "string" &&
+                                      value.includes("T") &&
+                                      value.includes("Z")
+                                        ? new Date(
+                                            value
+                                          ).toLocaleDateString()
+                                        : value}
+                                    </span>
+                                  )}
+                                </td>
+                              );
+                            })}
                           </tr>
                         ))}
                       </tbody>
@@ -963,5 +1137,12 @@ const styles = {
     color: "#dc2626",
     cursor: "pointer",
     fontWeight: 700,
+  },
+  editInput: {
+    width: "100%",
+    border: "1px solid #1e5f8a",
+    borderRadius: 4,
+    padding: 6,
+    fontSize: 14,
   },
 };
